@@ -112,10 +112,11 @@ function checkExitCondition(candle, entryPrice, isBuy, target, stopLoss) {
 
 /**
  * Run breakout strategy for a single trading day
+ * Returns: { trades: [], updatedCapital: number }
  */
-function processTradingDay(candles, previousDayLevels, targetPercent, stopLossPercent) {
+function processTradingDay(candles, previousDayLevels, targetPercent, stopLossPercent, currentCapital) {
   if (!previousDayLevels || candles.length === 0) {
-    return null;
+    return { trades: [], updatedCapital: currentCapital };
   }
 
   // Convert percentages to decimals (e.g., 0.2 -> 0.002)
@@ -126,6 +127,7 @@ function processTradingDay(candles, previousDayLevels, targetPercent, stopLossPe
   let activeTrade = null;
   let tradeExecuted = false; // Flag to ensure only one trade per day
   const trades = [];
+  let updatedCapital = currentCapital;
 
   for (let i = 0; i < candles.length; i++) {
     const candle = candles[i];
@@ -137,6 +139,9 @@ function processTradingDay(candles, previousDayLevels, targetPercent, stopLossPe
         const target = entryPrice * (1 + targetPercentDecimal);
         const stopLoss = entryPrice * (1 - stopLossPercentDecimal);
 
+        // Calculate quantity based on current capital
+        const quantity = Math.floor(updatedCapital / entryPrice);
+        
         activeTrade = {
           type: 'BUY',
           entryPrice,
@@ -144,12 +149,16 @@ function processTradingDay(candles, previousDayLevels, targetPercent, stopLossPe
           entryCandleIndex: i,
           target,
           stopLoss,
-          isBuy: true
+          isBuy: true,
+          quantity: quantity
         };
       } else if (candle.low < dailyLow) {
         const entryPrice = dailyLow;
         const target = entryPrice * (1 - targetPercentDecimal);
         const stopLoss = entryPrice * (1 + stopLossPercentDecimal);
+
+        // Calculate quantity based on current capital
+        const quantity = Math.floor(updatedCapital / entryPrice);
 
         activeTrade = {
           type: 'SELL',
@@ -158,7 +167,8 @@ function processTradingDay(candles, previousDayLevels, targetPercent, stopLossPe
           entryCandleIndex: i,
           target,
           stopLoss,
-          isBuy: false
+          isBuy: false,
+          quantity: quantity
         };
       }
     }
@@ -173,14 +183,18 @@ function processTradingDay(candles, previousDayLevels, targetPercent, stopLossPe
       );
 
       if (exitCheck.exited) {
+        // Calculate P&L based on quantity
         let pnl, pnlPercent;
         if (activeTrade.isBuy) {
-          pnl = exitCheck.exitPrice - activeTrade.entryPrice;
-          pnlPercent = (pnl / activeTrade.entryPrice) * 100;
+          pnl = (exitCheck.exitPrice - activeTrade.entryPrice) * activeTrade.quantity;
+          pnlPercent = ((exitCheck.exitPrice - activeTrade.entryPrice) / activeTrade.entryPrice) * 100;
         } else {
-          pnl = activeTrade.entryPrice - exitCheck.exitPrice;
-          pnlPercent = (pnl / activeTrade.entryPrice) * 100;
+          pnl = (activeTrade.entryPrice - exitCheck.exitPrice) * activeTrade.quantity;
+          pnlPercent = ((activeTrade.entryPrice - exitCheck.exitPrice) / activeTrade.entryPrice) * 100;
         }
+
+        // Update capital after trade
+        updatedCapital = updatedCapital + pnl;
 
         trades.push({
           date: new Date(candle.timestamp),
@@ -190,6 +204,7 @@ function processTradingDay(candles, previousDayLevels, targetPercent, stopLossPe
           exitPrice: exitCheck.exitPrice,
           exitTime: candle.timestamp,
           exitReason: exitCheck.reason,
+          quantity: activeTrade.quantity,
           pnl: parseFloat(pnl.toFixed(2)),
           pnlPercent: parseFloat(pnlPercent.toFixed(2))
         });
@@ -207,14 +222,18 @@ function processTradingDay(candles, previousDayLevels, targetPercent, stopLossPe
     const lastCandle = candles[candles.length - 1];
     const exitPrice = lastCandle.close;
 
+    // Calculate P&L based on quantity
     let pnl, pnlPercent;
     if (activeTrade.isBuy) {
-      pnl = exitPrice - activeTrade.entryPrice;
-      pnlPercent = (pnl / activeTrade.entryPrice) * 100;
+      pnl = (exitPrice - activeTrade.entryPrice) * activeTrade.quantity;
+      pnlPercent = ((exitPrice - activeTrade.entryPrice) / activeTrade.entryPrice) * 100;
     } else {
-      pnl = activeTrade.entryPrice - exitPrice;
-      pnlPercent = (pnl / activeTrade.entryPrice) * 100;
+      pnl = (activeTrade.entryPrice - exitPrice) * activeTrade.quantity;
+      pnlPercent = ((activeTrade.entryPrice - exitPrice) / activeTrade.entryPrice) * 100;
     }
+
+    // Update capital after trade
+    updatedCapital = updatedCapital + pnl;
 
     trades.push({
       date: new Date(lastCandle.timestamp),
@@ -224,12 +243,13 @@ function processTradingDay(candles, previousDayLevels, targetPercent, stopLossPe
       exitPrice: exitPrice,
       exitTime: lastCandle.timestamp,
       exitReason: 'END_OF_DAY',
+      quantity: activeTrade.quantity,
       pnl: parseFloat(pnl.toFixed(2)),
       pnlPercent: parseFloat(pnlPercent.toFixed(2))
     });
   }
 
-  return trades;
+  return { trades, updatedCapital };
 }
 
 /**
@@ -296,7 +316,7 @@ function calculatePerformanceMetrics(allTrades) {
  */
 exports.runStrategy = async (req, res) => {
   try {
-    const { stockName, securityId, startDate, endDate, targetPercent, stopLossPercent } = req.body;
+    const { stockName, securityId, startDate, endDate, targetPercent, stopLossPercent, capital } = req.body;
 
     // Validation
     if (!stockName || !securityId || !startDate || !endDate) {
@@ -328,6 +348,18 @@ exports.runStrategy = async (req, res) => {
       });
     }
 
+    // Validate and set default value for capital
+    const capitalValue = capital !== undefined && capital !== null 
+      ? parseFloat(capital) 
+      : 100000; // Default ₹1,00,000
+
+    if (isNaN(capitalValue) || capitalValue < 1000) {
+      return res.status(400).json({
+        success: false,
+        message: 'Capital must be a number greater than or equal to 1000'
+      });
+    }
+
     const start = new Date(startDate);
     const end = new Date(endDate);
     
@@ -355,9 +387,10 @@ exports.runStrategy = async (req, res) => {
       });
     }
 
-    // Process each trading day
+    // Process each trading day with capital compounding
     const allTrades = [];
     const skippedDays = [];
+    let currentCapital = capitalValue; // Start with initial capital
 
     for (let i = 0; i < tradingDays.length; i++) {
       const tradingDay = tradingDays[i];
@@ -376,10 +409,13 @@ exports.runStrategy = async (req, res) => {
         continue;
       }
 
-      const trades = processTradingDay(candles, previousDayLevels, targetPercentValue, stopLossPercentValue);
+      // Process trading day with current capital
+      const result = processTradingDay(candles, previousDayLevels, targetPercentValue, stopLossPercentValue, currentCapital);
       
-      if (trades && trades.length > 0) {
-        allTrades.push(...trades);
+      if (result.trades && result.trades.length > 0) {
+        allTrades.push(...result.trades);
+        // Update capital after trades (capital compounds)
+        currentCapital = result.updatedCapital;
       }
     }
 
@@ -424,7 +460,8 @@ exports.runStrategy = async (req, res) => {
         startDate: start.toISOString().split('T')[0],
         endDate: end.toISOString().split('T')[0],
         targetPercent: targetPercentValue,
-        stopLossPercent: stopLossPercentValue
+        stopLossPercent: stopLossPercentValue,
+        capital: capitalValue
       },
       summary: {
         totalTradingDays: tradingDays.length,

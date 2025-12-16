@@ -290,6 +290,21 @@
                     </div>
                 </div>
 
+                <div class="form-group">
+                    <label for="capital">Initial Capital <span class="required">*</span></label>
+                    <input 
+                        type="number" 
+                        id="capital" 
+                        name="capital" 
+                        class="form-control" 
+                        step="1000"
+                        min="1000"
+                        value="100000"
+                        required
+                    >
+                    <small class="form-text">Starting capital amount (e.g., 100000 for ₹1,00,000)</small>
+                </div>
+
                 <button type="submit" class="btn btn-primary" id="submitBtn">
                     Run Strategy Backtest
                 </button>
@@ -314,6 +329,13 @@
                 <!-- Best and Worst Trades -->
                 <div id="bestWorstTrades"></div>
 
+                <!-- Capital Analytics -->
+                <div class="chart-container">
+                    <h3 class="section-title">Capital Analytics</h3>
+                    <div id="capitalMetrics" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;"></div>
+                    <canvas id="capitalChart"></canvas>
+                </div>
+
                 <!-- P&L Chart -->
                 <div class="chart-container">
                     <h3 class="section-title">Cumulative P&L Chart</h3>
@@ -331,6 +353,7 @@
                                     <th>Type</th>
                                     <th>Entry Price</th>
                                     <th>Exit Price</th>
+                                    <th>Quantity</th>
                                     <th>P&L</th>
                                     <th>P&L %</th>
                                     <th>Exit Reason</th>
@@ -369,6 +392,7 @@
         const loadingMessage = document.getElementById('loadingMessage');
         const resultsSection = document.getElementById('resultsSection');
         let pnlChart = null;
+        let capitalChart = null;
 
         // Hide messages function
         function hideMessages() {
@@ -402,26 +426,51 @@
         }
 
         // Date validation
-        function validateDates() {
-            const startDate = document.getElementById('startDate').value;
-            const endDate = document.getElementById('endDate').value;
+        function validateDates(showErrorMsg = true) {
+            const startDateInput = document.getElementById('startDate');
+            const endDateInput = document.getElementById('endDate');
+            const startDate = startDateInput.value;
+            const endDate = endDateInput.value;
 
-            if (startDate && endDate) {
-                const start = new Date(startDate);
-                const end = new Date(endDate);
+            // Clear any previous error styling
+            startDateInput.style.borderColor = '';
+            endDateInput.style.borderColor = '';
 
-                if (start >= end) {
-                    showError('End date must be after start date');
-                    return false;
+            if (!startDate || !endDate) {
+                if (showErrorMsg) {
+                    showError('Please select both start and end dates');
                 }
+                return false;
+            }
+
+            const start = new Date(startDate);
+            const end = new Date(endDate);
+
+            if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+                if (showErrorMsg) {
+                    showError('Invalid date format');
+                }
+                return false;
+            }
+
+            if (start >= end) {
+                if (showErrorMsg) {
+                    showError('End date must be after start date');
+                    endDateInput.style.borderColor = '#e74c3c';
+                }
+                return false;
             }
 
             return true;
         }
 
-        // Add date change listeners
-        document.getElementById('startDate').addEventListener('change', validateDates);
-        document.getElementById('endDate').addEventListener('change', validateDates);
+        // Add date change listeners (without showing error on every change)
+        document.getElementById('startDate').addEventListener('change', function() {
+            validateDates(false); // Validate but don't show error on change
+        });
+        document.getElementById('endDate').addEventListener('change', function() {
+            validateDates(false); // Validate but don't show error on change
+        });
 
         // Format currency
         function formatCurrency(value) {
@@ -516,18 +565,117 @@
             tradesTableBody.innerHTML = trades.map(trade => {
                 const pnlClass = trade.pnl >= 0 ? 'pnl-positive' : 'pnl-negative';
                 const exitReasonClass = trade.exitReason.toLowerCase().replace('_', '-');
+                const quantity = trade.quantity || 1; // Fallback to 1 if quantity not present
                 return `
                     <tr>
                         <td>${trade.date}</td>
                         <td><span class="badge badge-${trade.type.toLowerCase()}">${trade.type}</span></td>
                         <td>${formatCurrency(trade.entryPrice)}</td>
                         <td>${formatCurrency(trade.exitPrice)}</td>
+                        <td>${quantity}</td>
                         <td class="${pnlClass}">${formatCurrency(trade.pnl)}</td>
                         <td class="${pnlClass}">${formatPercent(trade.pnlPercent)}</td>
                         <td><span class="badge badge-${exitReasonClass}">${trade.exitReason}</span></td>
                     </tr>
                 `;
             }).join('');
+
+            // Calculate and display capital analytics
+            const initialCapital = config.capital || 100000;
+            let cumulativePnlForCapital = 0;
+            const capitalData = trades.map((trade, index) => {
+                cumulativePnlForCapital += trade.pnl;
+                return {
+                    x: trade.date,
+                    y: initialCapital + cumulativePnlForCapital
+                };
+            });
+
+            // Add initial point
+            if (trades.length > 0) {
+                capitalData.unshift({ x: trades[0].date, y: initialCapital });
+            }
+
+            // Calculate final capital using the cumulative P&L (more accurate)
+            const finalCapital = capitalData.length > 0 ? capitalData[capitalData.length - 1].y : initialCapital;
+            // Alternative: use summary.totalPnl if available and matches
+            const calculatedFinalCapital = initialCapital + summary.totalPnl;
+            
+            // Use the more accurate value (from cumulative calculation)
+            const actualFinalCapital = Math.abs(finalCapital - calculatedFinalCapital) < 0.01 ? calculatedFinalCapital : finalCapital;
+            
+            // Calculate capital growth percentage
+            const capitalGrowth = ((actualFinalCapital - initialCapital) / initialCapital) * 100;
+
+            // Display capital metrics
+            const capitalMetrics = document.getElementById('capitalMetrics');
+            capitalMetrics.innerHTML = `
+                <div class="metric-card">
+                    <div class="metric-value">${formatCurrency(initialCapital)}</div>
+                    <div class="metric-label">Initial Capital</div>
+                </div>
+                <div class="metric-card ${actualFinalCapital >= initialCapital ? 'positive' : 'negative'}">
+                    <div class="metric-value">${formatCurrency(actualFinalCapital)}</div>
+                    <div class="metric-label">Final Capital</div>
+                </div>
+                <div class="metric-card ${capitalGrowth >= 0 ? 'positive' : 'negative'}">
+                    <div class="metric-value">${formatPercent(capitalGrowth)}</div>
+                    <div class="metric-label">Capital Growth</div>
+                </div>
+                <div class="metric-card ${summary.totalPnl >= 0 ? 'positive' : 'negative'}">
+                    <div class="metric-value">${formatCurrency(summary.totalPnl)}</div>
+                    <div class="metric-label">Total Profit/Loss</div>
+                </div>
+            `;
+
+            // Create capital growth chart
+            const capitalCtx = document.getElementById('capitalChart').getContext('2d');
+            
+            if (capitalChart) {
+                capitalChart.destroy();
+            }
+
+            capitalChart = new Chart(capitalCtx, {
+                type: 'line',
+                data: {
+                    labels: capitalData.map(d => d.x),
+                    datasets: [{
+                        label: 'Capital Growth',
+                        data: capitalData.map(d => d.y),
+                        borderColor: actualFinalCapital >= initialCapital ? '#11998e' : '#eb3349',
+                        backgroundColor: actualFinalCapital >= initialCapital ? 'rgba(17, 153, 142, 0.1)' : 'rgba(235, 51, 73, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `Capital: ${formatCurrency(context.parsed.y)}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: false,
+                            ticks: {
+                                callback: function(value) {
+                                    return formatCurrency(value);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
 
             // Create P&L chart
             let cumulativePnl = 0;
@@ -602,22 +750,54 @@
             e.preventDefault();
             hideMessages();
 
-            if (!form.checkValidity()) {
-                form.reportValidity();
+            // Get form values before any validation
+            const startDateValue = document.getElementById('startDate').value;
+            const endDateValue = document.getElementById('endDate').value;
+            const stockNameValue = document.getElementById('stockName').value.trim();
+            const securityIdValue = document.getElementById('securityId').value.trim();
+            const targetPercentValue = document.getElementById('targetPercent').value;
+            const stopLossPercentValue = document.getElementById('stopLossPercent').value;
+            const capitalValue = document.getElementById('capital').value;
+
+            // Check if required fields are filled
+            if (!startDateValue || !endDateValue || !stockNameValue || !securityIdValue || !targetPercentValue || !stopLossPercentValue || !capitalValue) {
+                showError('Please fill in all required fields');
                 return;
             }
 
-            if (!validateDates()) {
+            // Validate dates
+            if (!validateDates(true)) {
+                return;
+            }
+
+            // Validate numeric fields
+            const targetPercent = parseFloat(targetPercentValue);
+            const stopLossPercent = parseFloat(stopLossPercentValue);
+            const capital = parseFloat(capitalValue);
+
+            if (isNaN(targetPercent) || targetPercent <= 0 || targetPercent > 10) {
+                showError('Target percent must be a number between 0.01 and 10');
+                return;
+            }
+
+            if (isNaN(stopLossPercent) || stopLossPercent <= 0 || stopLossPercent > 10) {
+                showError('Stop loss percent must be a number between 0.01 and 10');
+                return;
+            }
+
+            if (isNaN(capital) || capital < 1000) {
+                showError('Capital must be a number greater than or equal to 1000');
                 return;
             }
 
             const formData = {
-                stockName: document.getElementById('stockName').value.trim(),
-                securityId: document.getElementById('securityId').value.trim(),
-                startDate: document.getElementById('startDate').value,
-                endDate: document.getElementById('endDate').value,
-                targetPercent: parseFloat(document.getElementById('targetPercent').value),
-                stopLossPercent: parseFloat(document.getElementById('stopLossPercent').value)
+                stockName: stockNameValue,
+                securityId: securityIdValue,
+                startDate: startDateValue,
+                endDate: endDateValue,
+                targetPercent: targetPercent,
+                stopLossPercent: stopLossPercent,
+                capital: capital
             };
 
             showLoading();
