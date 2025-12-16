@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><%= title %></title>
+    <link rel="stylesheet" href="/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .results-section {
+            margin-top: 2rem;
+            display: none;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .metric-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 1.5rem;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .metric-card.positive {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+        }
+
+        .metric-card.negative {
+            background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%);
+        }
+
+        .metric-value {
+            font-size: 2rem;
+            font-weight: bold;
+            margin-bottom: 0.5rem;
+        }
+
+        .metric-label {
+            font-size: 0.9rem;
+            opacity: 0.9;
+        }
+
+        .trades-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .trades-table thead {
+            background: #667eea;
+            color: white;
+        }
+
+        .trades-table th,
+        .trades-table td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .trades-table tbody tr:hover {
+            background: #f5f5f5;
+        }
+
+        .trades-table tbody tr:last-child td {
+            border-bottom: none;
+        }
+
+        .pnl-positive {
+            color: #11998e;
+            font-weight: 600;
+        }
+
+        .pnl-negative {
+            color: #eb3349;
+            font-weight: 600;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .badge-buy {
+            background: #11998e;
+            color: white;
+        }
+
+        .badge-sell {
+            background: #eb3349;
+            color: white;
+        }
+
+        .badge-target {
+            background: #38ef7d;
+            color: #333;
+        }
+
+        .badge-stop {
+            background: #f45c43;
+            color: white;
+        }
+
+        .badge-eod {
+            background: #667eea;
+            color: white;
+        }
+
+        .chart-container {
+            margin: 2rem 0;
+            padding: 1.5rem;
+            background: white;
+            border-radius: 8px;
+        }
+
+        .section-title {
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: #333;
+        }
+
+        .best-worst-trades {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+
+        .trade-detail-card {
+            padding: 1rem;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+
+        .trade-detail-card.best {
+            border-left-color: #11998e;
+        }
+
+        .trade-detail-card.worst {
+            border-left-color: #eb3349;
+        }
+
+        .trade-detail-card h4 {
+            margin-bottom: 0.5rem;
+            color: #333;
+        }
+
+        .trade-detail-card p {
+            margin: 0.25rem 0;
+            color: #666;
+            font-size: 0.9rem;
+        }
+
+        @media (max-width: 768px) {
+            .metrics-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .best-worst-trades {
+                grid-template-columns: 1fr;
+            }
+
+            .trades-table {
+                font-size: 0.85rem;
+            }
+
+            .trades-table th,
+            .trades-table td {
+                padding: 0.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <h1 class="card-title">Breakout Strategy Backtest</h1>
+            <p class="card-subtitle">Run an intraday breakout strategy using previous day high/low breakouts</p>
+
+            <!-- Success Message -->
+            <div id="successMessage" class="alert alert-success" style="display: none;"></div>
+
+            <!-- Error Message -->
+            <div id="errorMessage" class="alert alert-error" style="display: none;"></div>
+
+            <!-- Loading Message -->
+            <div id="loadingMessage" class="alert alert-info" style="display: none;">
+                <div class="spinner"></div>
+                <span>Running strategy backtest... This may take a few moments.</span>
+            </div>
+
+            <form id="strategyForm" class="form">
+                <div class="form-group">
+                    <label for="stockName">Stock Name <span class="required">*</span></label>
+                    <input 
+                        type="text" 
+                        id="stockName" 
+                        name="stockName" 
+                        class="form-control" 
+                        placeholder="e.g., RELIANCE"
+                        value="RELIANCE"
+                        required
+                    >
+                    <small class="form-text">Enter the stock name</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="securityId">Security ID <span class="required">*</span></label>
+                    <input 
+                        type="text" 
+                        id="securityId" 
+                        name="securityId" 
+                        class="form-control" 
+                        placeholder="e.g., 2885"
+                        value="2885"
+                        required
+                    >
+                    <small class="form-text">Dhan Security ID for the stock</small>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="startDate">Start Date <span class="required">*</span></label>
+                        <input 
+                            type="date" 
+                            id="startDate" 
+                            name="startDate" 
+                            class="form-control" 
+                            required
+                        >
+                    </div>
+
+                    <div class="form-group">
+                        <label for="endDate">End Date <span class="required">*</span></label>
+                        <input 
+                            type="date" 
+                            id="endDate" 
+                            name="endDate" 
+                            class="form-control" 
+                            required
+                        >
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="targetPercent">Target Percent <span class="required">*</span></label>
+                        <input 
+                            type="number" 
+                            id="targetPercent" 
+                            name="targetPercent" 
+                            class="form-control" 
+                            step="0.01"
+                            min="0.01"
+                            max="10"
+                            value="0.2"
+                            required
+                        >
+                        <small class="form-text">Target profit percentage (e.g., 0.2 for 0.2%)</small>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="stopLossPercent">Stop Loss Percent <span class="required">*</span></label>
+                        <input 
+                            type="number" 
+                            id="stopLossPercent" 
+                            name="stopLossPercent" 
+                            class="form-control" 
+                            step="0.01"
+                            min="0.01"
+                            max="10"
+                            value="0.2"
+                            required
+                        >
+                        <small class="form-text">Stop loss percentage (e.g., 0.2 for 0.2%)</small>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-primary" id="submitBtn">
+                    Run Strategy Backtest
+                </button>
+            </form>
+
+            <!-- Results Section -->
+            <div id="resultsSection" class="results-section">
+                <h2 class="section-title">Backtest Results</h2>
+
+                <!-- Strategy Parameters -->
+                <div id="strategyParams" style="margin-bottom: 2rem; padding: 1rem; background: #f8f9fa; border-radius: 8px;">
+                    <h3 style="font-size: 1rem; margin-bottom: 0.5rem; color: #666;">Strategy Parameters</h3>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; font-size: 0.9rem;">
+                        <div><strong>Target:</strong> <span id="configTargetPercent"></span></div>
+                        <div><strong>Stop Loss:</strong> <span id="configStopLossPercent"></span></div>
+                    </div>
+                </div>
+
+                <!-- Performance Metrics -->
+                <div class="metrics-grid" id="metricsGrid"></div>
+
+                <!-- Best and Worst Trades -->
+                <div id="bestWorstTrades"></div>
+
+                <!-- P&L Chart -->
+                <div class="chart-container">
+                    <h3 class="section-title">Cumulative P&L Chart</h3>
+                    <canvas id="pnlChart"></canvas>
+                </div>
+
+                <!-- Trades Table -->
+                <div>
+                    <h3 class="section-title">Trade Details</h3>
+                    <div style="overflow-x: auto;">
+                        <table class="trades-table" id="tradesTable">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Type</th>
+                                    <th>Entry Price</th>
+                                    <th>Exit Price</th>
+                                    <th>P&L</th>
+                                    <th>P&L %</th>
+                                    <th>Exit Reason</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tradesTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="back-link">
+                <a href="/">← Back to Home</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Set max date to today
+        const today = new Date().toISOString().split('T')[0];
+        document.getElementById('endDate').setAttribute('max', today);
+        document.getElementById('startDate').setAttribute('max', today);
+
+        // Set default dates (last 30 days)
+        const defaultEndDate = new Date();
+        const defaultStartDate = new Date();
+        defaultStartDate.setDate(defaultStartDate.getDate() - 30);
+        document.getElementById('endDate').value = defaultEndDate.toISOString().split('T')[0];
+        document.getElementById('startDate').value = defaultStartDate.toISOString().split('T')[0];
+
+        // Form elements
+        const form = document.getElementById('strategyForm');
+        const submitBtn = document.getElementById('submitBtn');
+        const successMessage = document.getElementById('successMessage');
+        const errorMessage = document.getElementById('errorMessage');
+        const loadingMessage = document.getElementById('loadingMessage');
+        const resultsSection = document.getElementById('resultsSection');
+        let pnlChart = null;
+
+        // Hide messages function
+        function hideMessages() {
+            successMessage.style.display = 'none';
+            errorMessage.style.display = 'none';
+            loadingMessage.style.display = 'none';
+        }
+
+        // Show error function
+        function showError(message) {
+            hideMessages();
+            errorMessage.textContent = message;
+            errorMessage.style.display = 'block';
+            errorMessage.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        // Show loading function
+        function showLoading() {
+            hideMessages();
+            loadingMessage.style.display = 'block';
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Running...';
+            resultsSection.style.display = 'none';
+        }
+
+        // Hide loading function
+        function hideLoading() {
+            loadingMessage.style.display = 'none';
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Run Strategy Backtest';
+        }
+
+        // Date validation
+        function validateDates() {
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+
+            if (startDate && endDate) {
+                const start = new Date(startDate);
+                const end = new Date(endDate);
+
+                if (start >= end) {
+                    showError('End date must be after start date');
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        // Add date change listeners
+        document.getElementById('startDate').addEventListener('change', validateDates);
+        document.getElementById('endDate').addEventListener('change', validateDates);
+
+        // Format currency
+        function formatCurrency(value) {
+            return `₹${value.toFixed(2)}`;
+        }
+
+        // Format percentage
+        function formatPercent(value) {
+            return `${value.toFixed(2)}%`;
+        }
+
+        // Display results
+        function displayResults(data) {
+            const { config, summary, trades } = data;
+
+            // Display strategy parameters
+            document.getElementById('configTargetPercent').textContent = `${config.targetPercent}%`;
+            document.getElementById('configStopLossPercent').textContent = `${config.stopLossPercent}%`;
+
+            // Display metrics
+            const metricsGrid = document.getElementById('metricsGrid');
+            metricsGrid.innerHTML = `
+                <div class="metric-card">
+                    <div class="metric-value">${summary.totalTrades}</div>
+                    <div class="metric-label">Total Trades</div>
+                </div>
+                <div class="metric-card ${summary.winRate >= 50 ? 'positive' : 'negative'}">
+                    <div class="metric-value">${summary.winRate}%</div>
+                    <div class="metric-label">Win Rate</div>
+                </div>
+                <div class="metric-card ${summary.totalPnl >= 0 ? 'positive' : 'negative'}">
+                    <div class="metric-value">${formatCurrency(summary.totalPnl)}</div>
+                    <div class="metric-label">Total P&L</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">${formatCurrency(summary.averagePnl)}</div>
+                    <div class="metric-label">Avg P&L per Trade</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">${summary.winningTrades}</div>
+                    <div class="metric-label">Winning Trades</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-value">${summary.losingTrades}</div>
+                    <div class="metric-label">Losing Trades</div>
+                </div>
+                <div class="metric-card ${summary.maxDrawdown === 0 ? 'positive' : 'negative'}">
+                    <div class="metric-value">${formatCurrency(summary.maxDrawdown)}</div>
+                    <div class="metric-label">Max Drawdown</div>
+                </div>
+            `;
+
+            // Display best and worst trades
+            const bestWorstTrades = document.getElementById('bestWorstTrades');
+            if (summary.bestTrade || summary.worstTrade) {
+                let html = '<div class="best-worst-trades">';
+                
+                if (summary.bestTrade) {
+                    const t = summary.bestTrade;
+                    html += `
+                        <div class="trade-detail-card best">
+                            <h4>🏆 Best Trade</h4>
+                            <p><strong>Type:</strong> <span class="badge badge-${t.type.toLowerCase()}">${t.type}</span></p>
+                            <p><strong>Entry:</strong> ${formatCurrency(t.entryPrice)} at ${new Date(t.entryTime).toLocaleString()}</p>
+                            <p><strong>Exit:</strong> ${formatCurrency(t.exitPrice)} at ${new Date(t.exitTime).toLocaleString()}</p>
+                            <p><strong>P&L:</strong> <span class="pnl-positive">${formatCurrency(t.pnl)} (${formatPercent(t.pnlPercent)})</span></p>
+                            <p><strong>Exit Reason:</strong> <span class="badge badge-${t.exitReason.toLowerCase().replace('_', '-')}">${t.exitReason}</span></p>
+                        </div>
+                    `;
+                }
+
+                if (summary.worstTrade) {
+                    const t = summary.worstTrade;
+                    html += `
+                        <div class="trade-detail-card worst">
+                            <h4>📉 Worst Trade</h4>
+                            <p><strong>Type:</strong> <span class="badge badge-${t.type.toLowerCase()}">${t.type}</span></p>
+                            <p><strong>Entry:</strong> ${formatCurrency(t.entryPrice)} at ${new Date(t.entryTime).toLocaleString()}</p>
+                            <p><strong>Exit:</strong> ${formatCurrency(t.exitPrice)} at ${new Date(t.exitTime).toLocaleString()}</p>
+                            <p><strong>P&L:</strong> <span class="pnl-negative">${formatCurrency(t.pnl)} (${formatPercent(t.pnlPercent)})</span></p>
+                            <p><strong>Exit Reason:</strong> <span class="badge badge-${t.exitReason.toLowerCase().replace('_', '-')}">${t.exitReason}</span></p>
+                        </div>
+                    `;
+                }
+
+                html += '</div>';
+                bestWorstTrades.innerHTML = html;
+            }
+
+            // Display trades table
+            const tradesTableBody = document.getElementById('tradesTableBody');
+            tradesTableBody.innerHTML = trades.map(trade => {
+                const pnlClass = trade.pnl >= 0 ? 'pnl-positive' : 'pnl-negative';
+                const exitReasonClass = trade.exitReason.toLowerCase().replace('_', '-');
+                return `
+                    <tr>
+                        <td>${trade.date}</td>
+                        <td><span class="badge badge-${trade.type.toLowerCase()}">${trade.type}</span></td>
+                        <td>${formatCurrency(trade.entryPrice)}</td>
+                        <td>${formatCurrency(trade.exitPrice)}</td>
+                        <td class="${pnlClass}">${formatCurrency(trade.pnl)}</td>
+                        <td class="${pnlClass}">${formatPercent(trade.pnlPercent)}</td>
+                        <td><span class="badge badge-${exitReasonClass}">${trade.exitReason}</span></td>
+                    </tr>
+                `;
+            }).join('');
+
+            // Create P&L chart
+            let cumulativePnl = 0;
+            const chartData = trades.map((trade, index) => {
+                cumulativePnl += trade.pnl;
+                return {
+                    x: trade.date,
+                    y: cumulativePnl
+                };
+            });
+
+            // Add initial point at 0
+            if (trades.length > 0) {
+                chartData.unshift({ x: trades[0].date, y: 0 });
+            }
+
+            const ctx = document.getElementById('pnlChart').getContext('2d');
+            
+            if (pnlChart) {
+                pnlChart.destroy();
+            }
+
+            pnlChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: chartData.map(d => d.x),
+                    datasets: [{
+                        label: 'Cumulative P&L',
+                        data: chartData.map(d => d.y),
+                        borderColor: cumulativePnl >= 0 ? '#11998e' : '#eb3349',
+                        backgroundColor: cumulativePnl >= 0 ? 'rgba(17, 153, 142, 0.1)' : 'rgba(235, 51, 73, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `P&L: ${formatCurrency(context.parsed.y)}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: false,
+                            ticks: {
+                                callback: function(value) {
+                                    return formatCurrency(value);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Show results section
+            resultsSection.style.display = 'block';
+            resultsSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        // Form submission
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            hideMessages();
+
+            if (!form.checkValidity()) {
+                form.reportValidity();
+                return;
+            }
+
+            if (!validateDates()) {
+                return;
+            }
+
+            const formData = {
+                stockName: document.getElementById('stockName').value.trim(),
+                securityId: document.getElementById('securityId').value.trim(),
+                startDate: document.getElementById('startDate').value,
+                endDate: document.getElementById('endDate').value,
+                targetPercent: parseFloat(document.getElementById('targetPercent').value),
+                stopLossPercent: parseFloat(document.getElementById('stopLossPercent').value)
+            };
+
+            showLoading();
+
+            try {
+                const response = await fetch('/strategy/run', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    displayResults(data);
+                } else {
+                    showError(data.message || 'An error occurred while running the strategy');
+                }
+
+            } catch (error) {
+                console.error('Error:', error);
+                showError('Network error. Please check your connection and try again.');
+            } finally {
+                hideLoading();
+            }
+        });
+    </script>
+</body>
+</html>
+

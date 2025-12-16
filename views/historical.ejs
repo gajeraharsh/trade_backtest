@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><%= title %></title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <h1 class="card-title">Fetch Historical Stock Data</h1>
+            <p class="card-subtitle">Enter stock details to fetch and store historical data from Dhan API</p>
+
+            <!-- Success Message -->
+            <div id="successMessage" class="alert alert-success" style="display: none;"></div>
+
+            <!-- Error Message -->
+            <div id="errorMessage" class="alert alert-error" style="display: none;"></div>
+
+            <!-- Loading Message -->
+            <div id="loadingMessage" class="alert alert-info" style="display: none;">
+                <div class="spinner"></div>
+                <span>Fetching data from Dhan API... This may take a few moments.</span>
+            </div>
+
+            <form id="historicalForm" class="form">
+                <div class="form-group">
+                    <label for="stockName">Stock Name <span class="required">*</span></label>
+                    <input 
+                        type="text" 
+                        id="stockName" 
+                        name="stockName" 
+                        class="form-control" 
+                        placeholder="e.g., RELIANCE"
+                        required
+                    >
+                    <small class="form-text">Enter the stock name (e.g., RELIANCE, TCS, INFY)</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="securityId">Security ID <span class="required">*</span></label>
+                    <input 
+                        type="text" 
+                        id="securityId" 
+                        name="securityId" 
+                        class="form-control" 
+                        placeholder="e.g., 11536"
+                        required
+                    >
+                    <small class="form-text">Dhan Security ID for the stock</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="interval">Interval <span class="required">*</span></label>
+                    <select id="interval" name="interval" class="form-control" required>
+                        <option value="">Select Interval</option>
+                        <option value="1">1 minute</option>
+                        <option value="5">5 minutes</option>
+                        <option value="15">15 minutes</option>
+                        <option value="25">25 minutes</option>
+                        <option value="60">60 minutes</option>
+                    </select>
+                    <small class="form-text">Time interval for candlestick data</small>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label for="startDate">Start Date <span class="required">*</span></label>
+                        <input 
+                            type="date" 
+                            id="startDate" 
+                            name="startDate" 
+                            class="form-control" 
+                            required
+                        >
+                    </div>
+
+                    <div class="form-group">
+                        <label for="endDate">End Date <span class="required">*</span></label>
+                        <input 
+                            type="date" 
+                            id="endDate" 
+                            name="endDate" 
+                            class="form-control" 
+                            required
+                        >
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-primary" id="submitBtn">
+                    Fetch & Store Data
+                </button>
+            </form>
+
+            <div class="back-link">
+                <a href="/">← Back to Home</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Set max date to today
+        const today = new Date().toISOString().split('T')[0];
+        document.getElementById('endDate').setAttribute('max', today);
+        document.getElementById('startDate').setAttribute('max', today);
+
+        // Form validation and submission
+        const form = document.getElementById('historicalForm');
+        const submitBtn = document.getElementById('submitBtn');
+        const successMessage = document.getElementById('successMessage');
+        const errorMessage = document.getElementById('errorMessage');
+        const loadingMessage = document.getElementById('loadingMessage');
+
+        // Hide messages function
+        function hideMessages() {
+            successMessage.style.display = 'none';
+            errorMessage.style.display = 'none';
+            loadingMessage.style.display = 'none';
+        }
+
+        // Show error function
+        function showError(message) {
+            hideMessages();
+            errorMessage.textContent = message;
+            errorMessage.style.display = 'block';
+            errorMessage.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        // Show success function
+        function showSuccess(message) {
+            hideMessages();
+            successMessage.innerHTML = message;
+            successMessage.style.display = 'block';
+            successMessage.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        // Show loading function
+        function showLoading() {
+            hideMessages();
+            loadingMessage.style.display = 'block';
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Fetching...';
+        }
+
+        // Hide loading function
+        function hideLoading() {
+            loadingMessage.style.display = 'none';
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Fetch & Store Data';
+        }
+
+        // Date validation
+        function validateDates() {
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+
+            if (startDate && endDate) {
+                const start = new Date(startDate);
+                const end = new Date(endDate);
+
+                if (start >= end) {
+                    showError('End date must be after start date');
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        // Add date change listeners
+        document.getElementById('startDate').addEventListener('change', validateDates);
+        document.getElementById('endDate').addEventListener('change', validateDates);
+
+        // Form submission
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            hideMessages();
+
+            // Client-side validation
+            if (!form.checkValidity()) {
+                form.reportValidity();
+                return;
+            }
+
+            if (!validateDates()) {
+                return;
+            }
+
+            // Get form data
+            const formData = {
+                stockName: document.getElementById('stockName').value.trim(),
+                securityId: document.getElementById('securityId').value.trim(),
+                interval: document.getElementById('interval').value,
+                startDate: document.getElementById('startDate').value,
+                endDate: document.getElementById('endDate').value
+            };
+
+            // Show loading
+            showLoading();
+
+            try {
+                const response = await fetch('/historical/fetch', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showSuccess(
+                        `✅ ${data.message}<br>` +
+                        `📊 Total Fetched: ${data.totalFetched} candles<br>` +
+                        `💾 Saved to Database: ${data.saved} candles`
+                    );
+                    form.reset();
+                } else {
+                    showError(data.message || 'An error occurred while fetching data');
+                }
+
+            } catch (error) {
+                console.error('Error:', error);
+                showError('Network error. Please check your connection and try again.');
+            } finally {
+                hideLoading();
+            }
+        });
+    </script>
+</body>
+</html>
+
