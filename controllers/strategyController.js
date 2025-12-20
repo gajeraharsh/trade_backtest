@@ -129,11 +129,22 @@ function processTradingDay(candles, previousDayLevels, targetPercent, stopLossPe
   const trades = [];
   let updatedCapital = currentCapital;
 
+  // Market start time (9:15 AM for Indian markets)
+  // Get the date from first candle and set market start time
+  const marketStartTime = candles.length > 0 ? new Date(candles[0].timestamp) : new Date();
+  marketStartTime.setHours(9, 15, 0, 0); // 9:15 AM
+  
+  // 15 minutes in milliseconds
+  const MARKET_WARMUP_MS = 15 * 60 * 1000;
+  const earliestTradeTime = new Date(marketStartTime.getTime() + MARKET_WARMUP_MS);
+
   for (let i = 0; i < candles.length; i++) {
     const candle = candles[i];
+    const candleTime = new Date(candle.timestamp);
 
     // Only check for new trades if no trade has been executed yet today
-    if (!activeTrade && !tradeExecuted) {
+    // AND at least 15 minutes have passed since market start (9:15 AM)
+    if (!activeTrade && !tradeExecuted && candleTime >= earliestTradeTime) {
       if (candle.high > dailyHigh) {
         const entryPrice = dailyHigh;
         const target = entryPrice * (1 + targetPercentDecimal);
@@ -157,8 +168,8 @@ function processTradingDay(candles, previousDayLevels, targetPercent, stopLossPe
         const target = entryPrice * (1 - targetPercentDecimal);
         const stopLoss = entryPrice * (1 + stopLossPercentDecimal);
 
-        // Calculate quantity based on current capital
-        const quantity = Math.floor(updatedCapital / entryPrice);
+          // Calculate quantity based on current capital
+          const quantity = Math.floor(updatedCapital / entryPrice);
 
         activeTrade = {
           type: 'SELL',
@@ -475,6 +486,83 @@ exports.runStrategy = async (req, res) => {
 
   } catch (error) {
     console.error('Error running strategy:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Internal server error'
+    });
+  }
+};
+
+/**
+ * Get candle data for a specific trade day with trade details
+ */
+exports.getTradeDayChart = async (req, res) => {
+  try {
+    const { securityId, date, entryPrice, exitPrice, entryTime, exitTime, target, stopLoss } = req.query;
+
+    if (!securityId || !date) {
+      return res.status(400).json({
+        success: false,
+        message: 'Security ID and date are required'
+      });
+    }
+
+    const tradeDate = new Date(date);
+    const startOfDay = new Date(tradeDate);
+    startOfDay.setHours(0, 0, 0, 0);
+    
+    const endOfDay = new Date(tradeDate);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    // Get all 1-minute candles for the day
+    const candles = await Candle.find({
+      securityId,
+      interval: '1',
+      timestamp: {
+        $gte: startOfDay,
+        $lte: endOfDay
+      }
+    }).sort({ timestamp: 1 }).lean();
+
+    // Get daily summary for the day
+    const dailySummary = await DailySummary.findOne({
+      securityId,
+      date: {
+        $gte: startOfDay,
+        $lte: endOfDay
+      }
+    }).lean();
+
+    // Format candles for chart
+    const chartData = candles.map(candle => ({
+      timestamp: candle.timestamp,
+      open: candle.open,
+      high: candle.high,
+      low: candle.low,
+      close: candle.close,
+      volume: candle.volume
+    }));
+
+    // Prepare trade information
+    const tradeInfo = {
+      entryPrice: entryPrice ? parseFloat(entryPrice) : null,
+      exitPrice: exitPrice ? parseFloat(exitPrice) : null,
+      entryTime: entryTime ? new Date(entryTime) : null,
+      exitTime: exitTime ? new Date(exitTime) : null,
+      target: target ? parseFloat(target) : null,
+      stopLoss: stopLoss ? parseFloat(stopLoss) : null,
+      dailyHigh: dailySummary ? dailySummary.dailyHigh : null,
+      dailyLow: dailySummary ? dailySummary.dailyLow : null
+    };
+
+    res.json({
+      success: true,
+      candles: chartData,
+      tradeInfo
+    });
+
+  } catch (error) {
+    console.error('Error fetching trade day chart:', error);
     res.status(500).json({
       success: false,
       message: error.message || 'Internal server error'

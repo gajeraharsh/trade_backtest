@@ -125,6 +125,130 @@
             border-radius: 8px;
         }
 
+        .candle-chart-container {
+            margin: 2rem 0;
+            padding: 1.5rem;
+            background: white;
+            border-radius: 8px;
+            display: none;
+        }
+
+        .candle-chart-container.fullscreen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 9999;
+            margin: 0;
+            padding: 1.5rem;
+            border-radius: 0;
+            background: white;
+            overflow: auto;
+        }
+
+        .candle-chart-wrapper {
+            position: relative;
+            width: 100%;
+            height: 600px;
+            border: 1px solid #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .candle-chart-container.fullscreen .candle-chart-wrapper {
+            height: calc(100vh - 200px);
+            min-height: 500px;
+        }
+
+        #candleChartCanvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        .chart-controls {
+            margin-bottom: 1rem;
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .btn-fullscreen {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 600;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .btn-fullscreen:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(17, 153, 142, 0.4);
+        }
+
+        .btn-fullscreen:active {
+            transform: translateY(0);
+        }
+
+        .btn-show-chart {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 600;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .btn-show-chart:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-show-chart:active {
+            transform: translateY(0);
+        }
+
+        .trade-selector {
+            padding: 0.5rem;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .chart-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            margin-top: 1rem;
+            padding: 1rem;
+            background: #f8f9fa;
+            border-radius: 4px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.9rem;
+        }
+
+        .legend-color {
+            width: 20px;
+            height: 3px;
+            border-radius: 2px;
+        }
+
         .section-title {
             font-size: 1.5rem;
             font-weight: 600;
@@ -342,6 +466,13 @@
                     <canvas id="pnlChart"></canvas>
                 </div>
 
+                <!-- Show Chart Button -->
+                <div style="margin: 2rem 0; text-align: center;">
+                    <button class="btn-show-chart" id="showChartsBtn" onclick="showChartsView()" style="display: none;">
+                        📊 Show Trade Charts
+                    </button>
+                </div>
+
                 <!-- Trades Table -->
                 <div>
                     <h3 class="section-title">Trade Details</h3>
@@ -357,11 +488,28 @@
                                     <th>P&L</th>
                                     <th>P&L %</th>
                                     <th>Exit Reason</th>
+                                    <th>Chart</th>
                                 </tr>
                             </thead>
                             <tbody id="tradesTableBody"></tbody>
                         </table>
                     </div>
+                </div>
+
+                <!-- Candle Chart Section -->
+                <div class="candle-chart-container" id="candleChartContainer">
+                    <div class="chart-controls">
+                        <button class="btn-show-chart" id="closeChartBtn" onclick="closeCandleChart()">Close Chart</button>
+                        <button class="btn-fullscreen" id="fullscreenBtn" onclick="toggleFullscreen()">⛶ Fullscreen</button>
+                        <select class="trade-selector" id="tradeSelector" onchange="loadTradeChart()">
+                            <option value="">Select a trade to view chart...</option>
+                        </select>
+                    </div>
+                    <h3 class="section-title" id="chartTitle">Candle Chart</h3>
+                    <div class="candle-chart-wrapper">
+                        <canvas id="candleChartCanvas"></canvas>
+                    </div>
+                    <div class="chart-legend" id="chartLegend"></div>
                 </div>
             </div>
 
@@ -393,6 +541,8 @@
         const resultsSection = document.getElementById('resultsSection');
         let pnlChart = null;
         let capitalChart = null;
+        let allTradesData = null; // Store all trades data
+        let globalConfig = null; // Store config globally
 
         // Hide messages function
         function hideMessages() {
@@ -485,6 +635,10 @@
         // Display results
         function displayResults(data) {
             const { config, summary, trades } = data;
+            
+            // Store data globally
+            allTradesData = trades;
+            globalConfig = config;
 
             // Display strategy parameters
             document.getElementById('configTargetPercent').textContent = `${config.targetPercent}%`;
@@ -560,9 +714,16 @@
                 bestWorstTrades.innerHTML = html;
             }
 
+            // Populate trade selector
+            const tradeSelector = document.getElementById('tradeSelector');
+            tradeSelector.innerHTML = '<option value="">Select a trade to view chart...</option>' +
+                trades.map((trade, index) => 
+                    `<option value="${index}">${trade.date} - ${trade.type} - ${formatCurrency(trade.pnl)}</option>`
+                ).join('');
+
             // Display trades table
             const tradesTableBody = document.getElementById('tradesTableBody');
-            tradesTableBody.innerHTML = trades.map(trade => {
+            tradesTableBody.innerHTML = trades.map((trade, index) => {
                 const pnlClass = trade.pnl >= 0 ? 'pnl-positive' : 'pnl-negative';
                 const exitReasonClass = trade.exitReason.toLowerCase().replace('_', '-');
                 const quantity = trade.quantity || 1; // Fallback to 1 if quantity not present
@@ -576,6 +737,7 @@
                         <td class="${pnlClass}">${formatCurrency(trade.pnl)}</td>
                         <td class="${pnlClass}">${formatPercent(trade.pnlPercent)}</td>
                         <td><span class="badge badge-${exitReasonClass}">${trade.exitReason}</span></td>
+                        <td><button class="btn-show-chart" style="padding: 0.5rem 1rem; font-size: 0.85rem;" onclick="showTradeChart(${index})">View Chart</button></td>
                     </tr>
                 `;
             }).join('');
@@ -742,8 +904,427 @@
 
             // Show results section
             resultsSection.style.display = 'block';
+            
+            // Show the main chart button if there are trades
+            if (trades.length > 0) {
+                document.getElementById('showChartsBtn').style.display = 'inline-block';
+            }
+            
             resultsSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
+
+        // Custom Candlestick Chart Functions
+        function showTradeChart(tradeIndex) {
+            if (!allTradesData || !allTradesData[tradeIndex]) {
+                showError('Trade data not available');
+                return;
+            }
+            const trade = allTradesData[tradeIndex];
+            loadCandleChart(trade);
+        }
+
+        function loadTradeChart() {
+            const tradeSelector = document.getElementById('tradeSelector');
+            const tradeIndex = parseInt(tradeSelector.value);
+            if (isNaN(tradeIndex) || !allTradesData || !allTradesData[tradeIndex]) {
+                return;
+            }
+            const trade = allTradesData[tradeIndex];
+            loadCandleChart(trade);
+        }
+
+        function showChartsView() {
+            const chartContainer = document.getElementById('candleChartContainer');
+            chartContainer.style.display = 'block';
+            chartContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            const tradeSelector = document.getElementById('tradeSelector');
+            if (tradeSelector.options.length > 1) {
+                tradeSelector.focus();
+            }
+        }
+
+        function closeCandleChart() {
+            const chartContainer = document.getElementById('candleChartContainer');
+            chartContainer.style.display = 'none';
+            // Exit fullscreen if active
+            if (chartContainer.classList.contains('fullscreen')) {
+                chartContainer.classList.remove('fullscreen');
+                updateFullscreenButton();
+            }
+        }
+
+        function toggleFullscreen() {
+            const chartContainer = document.getElementById('candleChartContainer');
+            const fullscreenBtn = document.getElementById('fullscreenBtn');
+            
+            if (chartContainer.classList.contains('fullscreen')) {
+                // Exit fullscreen
+                chartContainer.classList.remove('fullscreen');
+                updateFullscreenButton();
+            } else {
+                // Enter fullscreen
+                chartContainer.classList.add('fullscreen');
+                updateFullscreenButton();
+            }
+            
+            // Redraw chart after a short delay to ensure container size is updated
+            setTimeout(() => {
+                const tradeSelector = document.getElementById('tradeSelector');
+                const selectedIndex = parseInt(tradeSelector.value);
+                if (!isNaN(selectedIndex) && allTradesData && allTradesData[selectedIndex]) {
+                    loadCandleChart(allTradesData[selectedIndex]);
+                }
+            }, 100);
+        }
+
+        function updateFullscreenButton() {
+            const chartContainer = document.getElementById('candleChartContainer');
+            const fullscreenBtn = document.getElementById('fullscreenBtn');
+            if (chartContainer.classList.contains('fullscreen')) {
+                fullscreenBtn.textContent = '⛶ Exit Fullscreen';
+            } else {
+                fullscreenBtn.textContent = '⛶ Fullscreen';
+            }
+        }
+
+        async function loadCandleChart(trade) {
+            try {
+                const chartContainer = document.getElementById('candleChartContainer');
+                const chartTitle = document.getElementById('chartTitle');
+                chartTitle.textContent = `Candle Chart - ${trade.date} (${trade.type})`;
+                chartContainer.style.display = 'block';
+                chartContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+                // Calculate target and stop loss
+                const targetPercent = globalConfig ? globalConfig.targetPercent : parseFloat(document.getElementById('configTargetPercent').textContent.replace('%', ''));
+                const stopLossPercent = globalConfig ? globalConfig.stopLossPercent : parseFloat(document.getElementById('configStopLossPercent').textContent.replace('%', ''));
+                
+                let target, stopLoss;
+                if (trade.type === 'BUY') {
+                    target = trade.entryPrice * (1 + targetPercent / 100);
+                    stopLoss = trade.entryPrice * (1 - stopLossPercent / 100);
+                } else {
+                    target = trade.entryPrice * (1 - targetPercent / 100);
+                    stopLoss = trade.entryPrice * (1 + stopLossPercent / 100);
+                }
+
+                // Get securityId
+                const securityId = globalConfig ? globalConfig.securityId : document.getElementById('securityId').value;
+                
+                // Fetch candle data
+                const response = await fetch(`/strategy/chart?securityId=${encodeURIComponent(securityId)}&date=${encodeURIComponent(trade.date)}&entryPrice=${trade.entryPrice}&exitPrice=${trade.exitPrice}&entryTime=${encodeURIComponent(trade.entryTime)}&exitTime=${encodeURIComponent(trade.exitTime)}&target=${target}&stopLoss=${stopLoss}`);
+                
+                const data = await response.json();
+                
+                if (!data.success) {
+                    showError(data.message || 'Failed to load chart data');
+                    return;
+                }
+
+                // Render custom candlestick chart
+                renderCandlestickChart(data.candles, data.tradeInfo);
+
+            } catch (error) {
+                console.error('Error loading chart:', error);
+                showError('Failed to load chart. Please try again.');
+            }
+        }
+
+        function renderCandlestickChart(candles, tradeInfo) {
+            const canvas = document.getElementById('candleChartCanvas');
+            const ctx = canvas.getContext('2d');
+            const container = canvas.parentElement;
+            
+            // Get device pixel ratio for crisp rendering
+            const dpr = window.devicePixelRatio || 1;
+            
+            // Set canvas size with device pixel ratio
+            const rect = container.getBoundingClientRect();
+            const containerWidth = rect.width;
+            const containerHeight = rect.height;
+            
+            canvas.width = containerWidth * dpr;
+            canvas.height = containerHeight * dpr;
+            canvas.style.width = containerWidth + 'px';
+            canvas.style.height = containerHeight + 'px';
+            
+            // Scale context for device pixel ratio
+            ctx.scale(dpr, dpr);
+            
+            if (candles.length === 0) {
+                ctx.fillStyle = '#666';
+                ctx.font = '16px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('No candle data available', containerWidth / 2, containerHeight / 2);
+                return;
+            }
+
+            // Chart dimensions (using actual container size, not scaled)
+            const padding = { top: 40, right: 120, bottom: 60, left: 90 };
+            const chartWidth = containerWidth - padding.left - padding.right;
+            const chartHeight = containerHeight - padding.top - padding.bottom;
+
+            // Collect all prices to determine range (candles + trade lines)
+            const allPrices = [];
+            candles.forEach(c => {
+                allPrices.push(c.low, c.high, c.open, c.close);
+            });
+            
+            // Add trade line prices
+            if (tradeInfo.entryPrice) allPrices.push(tradeInfo.entryPrice);
+            if (tradeInfo.exitPrice) allPrices.push(tradeInfo.exitPrice);
+            if (tradeInfo.target) allPrices.push(tradeInfo.target);
+            if (tradeInfo.stopLoss) allPrices.push(tradeInfo.stopLoss);
+            if (tradeInfo.dailyHigh) allPrices.push(tradeInfo.dailyHigh);
+            if (tradeInfo.dailyLow) allPrices.push(tradeInfo.dailyLow);
+
+            // Find price range including all prices
+            let minPrice = Math.min(...allPrices);
+            let maxPrice = Math.max(...allPrices);
+            
+            // Ensure minimum range to avoid division by zero
+            const priceRange = maxPrice - minPrice;
+            if (priceRange === 0 || priceRange < maxPrice * 0.001) {
+                // If range is too small, add 1% padding on both sides
+                const center = (minPrice + maxPrice) / 2;
+                const padding = Math.max(center * 0.01, 0.1);
+                minPrice = center - padding;
+                maxPrice = center + padding;
+            } else {
+                // Add 5% padding to price range
+                const padding = priceRange * 0.05;
+                minPrice -= padding;
+                maxPrice += padding;
+            }
+
+            // Calculate candle width
+            const candleWidth = Math.max(2, chartWidth / candles.length * 0.8);
+            const candleSpacing = chartWidth / candles.length;
+
+            // Price to Y coordinate conversion
+            function priceToY(price) {
+                if (maxPrice === minPrice) return padding.top + chartHeight / 2;
+                return padding.top + chartHeight - ((price - minPrice) / (maxPrice - minPrice)) * chartHeight;
+            }
+
+            // Time to X coordinate conversion
+            function timeToX(index) {
+                if (candles.length === 0) return padding.left;
+                return padding.left + index * candleSpacing + candleSpacing / 2;
+            }
+
+            // Clear canvas (using actual dimensions)
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, containerWidth, containerHeight);
+
+            // Draw grid lines
+            ctx.strokeStyle = '#e0e0e0';
+            ctx.lineWidth = 1;
+            for (let i = 0; i <= 5; i++) {
+                const price = minPrice + (maxPrice - minPrice) * (i / 5);
+                const y = priceToY(price);
+                ctx.beginPath();
+                ctx.moveTo(padding.left, y);
+                ctx.lineTo(padding.left + chartWidth, y);
+                ctx.stroke();
+                
+                // Price labels with better formatting
+                ctx.fillStyle = '#666';
+                ctx.font = '11px Arial';
+                ctx.textAlign = 'right';
+                const priceText = price.toFixed(2);
+                ctx.fillText(`₹${priceText}`, padding.left - 10, y + 4);
+            }
+
+            // Draw time labels (show every 60th candle or at start/middle/end)
+            const labelInterval = Math.max(1, Math.floor(candles.length / 5));
+            for (let i = 0; i < candles.length; i += labelInterval) {
+                const x = timeToX(i);
+                const time = new Date(candles[i].timestamp);
+                const timeStr = time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+                ctx.fillStyle = '#666';
+                ctx.font = '11px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(timeStr, x, containerHeight - padding.bottom + 20);
+            }
+
+            // Draw candlesticks
+            candles.forEach((candle, index) => {
+                const x = timeToX(index);
+                const openY = priceToY(candle.open);
+                const closeY = priceToY(candle.close);
+                const highY = priceToY(candle.high);
+                const lowY = priceToY(candle.low);
+                
+                const isBullish = candle.close >= candle.open;
+                
+                // Draw wick
+                ctx.strokeStyle = isBullish ? '#26a69a' : '#ef5350';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(x, highY);
+                ctx.lineTo(x, lowY);
+                ctx.stroke();
+                
+                // Draw body
+                const bodyHeight = Math.abs(closeY - openY) || 1;
+                ctx.fillStyle = isBullish ? '#26a69a' : '#ef5350';
+                ctx.fillRect(x - candleWidth / 2, Math.min(openY, closeY), candleWidth, bodyHeight);
+                
+                // Draw border
+                ctx.strokeStyle = isBullish ? '#26a69a' : '#ef5350';
+                ctx.strokeRect(x - candleWidth / 2, Math.min(openY, closeY), candleWidth, bodyHeight);
+            });
+
+            // Draw horizontal lines
+            const lineColors = {
+                entry: '#2196F3',
+                exit: '#FF9800',
+                target: '#4CAF50',
+                stopLoss: '#F44336',
+                dailyHigh: '#9C27B0',
+                dailyLow: '#9C27B0'
+            };
+
+            const lines = [];
+            if (tradeInfo.entryPrice) {
+                lines.push({ price: tradeInfo.entryPrice, color: lineColors.entry, label: 'Entry Price', style: 'solid' });
+            }
+            if (tradeInfo.exitPrice) {
+                lines.push({ price: tradeInfo.exitPrice, color: lineColors.exit, label: 'Exit Price', style: 'solid' });
+            }
+            if (tradeInfo.target) {
+                lines.push({ price: tradeInfo.target, color: lineColors.target, label: 'Target', style: 'dashed' });
+            }
+            if (tradeInfo.stopLoss) {
+                lines.push({ price: tradeInfo.stopLoss, color: lineColors.stopLoss, label: 'Stop Loss', style: 'dashed' });
+            }
+            if (tradeInfo.dailyHigh) {
+                lines.push({ price: tradeInfo.dailyHigh, color: lineColors.dailyHigh, label: 'Day High', style: 'dotted' });
+            }
+            if (tradeInfo.dailyLow) {
+                lines.push({ price: tradeInfo.dailyLow, color: lineColors.dailyLow, label: 'Day Low', style: 'dotted' });
+            }
+
+            lines.forEach(line => {
+                const y = priceToY(line.price);
+                ctx.strokeStyle = line.color;
+                ctx.lineWidth = 2;
+                
+                if (line.style === 'dashed') {
+                    ctx.setLineDash([5, 5]);
+                } else if (line.style === 'dotted') {
+                    ctx.setLineDash([2, 2]);
+                } else {
+                    ctx.setLineDash([]);
+                }
+                
+                ctx.beginPath();
+                ctx.moveTo(padding.left, y);
+                ctx.lineTo(padding.left + chartWidth, y);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                
+                // Label with better formatting
+                ctx.fillStyle = line.color;
+                ctx.font = 'bold 11px Arial';
+                ctx.textAlign = 'left';
+                const priceText = line.price.toFixed(2);
+                ctx.fillText(`${line.label}: ₹${priceText}`, padding.left + chartWidth + 10, y + 4);
+            });
+
+            // Draw entry/exit markers
+            if (tradeInfo.entryTime && candles.length > 0) {
+                const entryTime = new Date(tradeInfo.entryTime);
+                const entryIndex = candles.findIndex(c => new Date(c.timestamp) >= entryTime);
+                if (entryIndex >= 0) {
+                    const x = timeToX(entryIndex);
+                    const y = priceToY(tradeInfo.entryPrice);
+                    ctx.fillStyle = lineColors.entry;
+                    ctx.beginPath();
+                    ctx.arc(x, y, 6, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.strokeStyle = '#fff';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+            }
+
+            if (tradeInfo.exitTime && candles.length > 0) {
+                const exitTime = new Date(tradeInfo.exitTime);
+                const exitIndex = candles.findIndex(c => new Date(c.timestamp) >= exitTime);
+                if (exitIndex >= 0) {
+                    const x = timeToX(exitIndex);
+                    const y = priceToY(tradeInfo.exitPrice);
+                    ctx.fillStyle = lineColors.exit;
+                    ctx.beginPath();
+                    ctx.arc(x, y, 6, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.strokeStyle = '#fff';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+            }
+
+            // Draw border (using actual dimensions)
+            ctx.strokeStyle = '#ccc';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(padding.left, padding.top, chartWidth, chartHeight);
+            
+            // Draw title
+            ctx.fillStyle = '#333';
+            ctx.font = 'bold 14px Arial';
+            ctx.textAlign = 'left';
+            ctx.fillText('Price', padding.left - 80, padding.top - 10);
+            
+            // Draw axis labels
+            ctx.fillStyle = '#666';
+            ctx.font = '11px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('Time', containerWidth / 2, containerHeight - 10);
+
+            // Update legend
+            const legend = document.getElementById('chartLegend');
+            legend.innerHTML = lines.map(line => {
+                let borderStyle = 'solid';
+                if (line.style === 'dashed') {
+                    borderStyle = 'dashed';
+                } else if (line.style === 'dotted') {
+                    borderStyle = 'dotted';
+                }
+                return `
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: ${line.color}; border: 2px ${borderStyle} ${line.color};"></div>
+                        <span>${line.label}</span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            const chartContainer = document.getElementById('candleChartContainer');
+            if (allTradesData && chartContainer.style.display !== 'none') {
+                const tradeSelector = document.getElementById('tradeSelector');
+                const selectedIndex = parseInt(tradeSelector.value);
+                if (!isNaN(selectedIndex) && allTradesData[selectedIndex]) {
+                    // Small delay to ensure container size is updated
+                    setTimeout(() => {
+                        loadCandleChart(allTradesData[selectedIndex]);
+                    }, 50);
+                }
+            }
+        });
+
+        // Handle ESC key to exit fullscreen
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                const chartContainer = document.getElementById('candleChartContainer');
+                if (chartContainer.classList.contains('fullscreen')) {
+                    toggleFullscreen();
+                }
+            }
+        });
 
         // Form submission
         form.addEventListener('submit', async (e) => {
